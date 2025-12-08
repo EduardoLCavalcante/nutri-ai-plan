@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
+import { gerarPlanoIA, isHFTokenConfigured } from '@/services/huggingFaceApi';
 import { 
   User, 
   Ruler, 
@@ -162,34 +163,46 @@ const Formulario = () => {
       return;
     }
 
+    // Verificar se o token está configurado
+    if (!isHFTokenConfigured()) {
+      toast({
+        title: 'Configuração necessária',
+        description: 'O token do Hugging Face não está configurado. Configure VITE_HF_TOKEN no arquivo .env',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setIsLoading(true);
 
     try {
       const userData = formData as UserData;
       setUserData(userData);
 
-      // Calcular TMB e GET
-      const tmb = calculateTMB(userData);
-      const get = calculateGET(tmb, userData.perfil);
-      const adjustedCalories = adjustCalories(get, userData.objetivo);
-
-      // Simular delay de processamento
-      await new Promise(resolve => setTimeout(resolve, 2000));
-
-      // Gerar plano mockado (será substituído pela IA real)
-      const mealPlan = generateMockMealPlan(userData, tmb, get, adjustedCalories);
+      // Gerar plano alimentar usando IA real
+      const mealPlan = await gerarPlanoIA(userData);
+      
+      // Se a IA não retornou TMB/GET, calcular localmente
+      if (!mealPlan.tmb || !mealPlan.get) {
+        const tmb = calculateTMB(userData);
+        const get = calculateGET(tmb, userData.perfil);
+        mealPlan.tmb = Math.round(tmb);
+        mealPlan.get = Math.round(get);
+      }
+      
       setMealPlan(mealPlan);
 
       toast({
         title: 'Plano gerado com sucesso!',
-        description: 'Seu plano alimentar foi criado.',
+        description: 'Seu plano alimentar personalizado foi criado pela IA.',
       });
 
       navigate('/plano');
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Ocorreu um erro. Tente novamente.';
       toast({
         title: 'Erro ao gerar plano',
-        description: 'Ocorreu um erro. Tente novamente.',
+        description: errorMessage,
         variant: 'destructive',
       });
     } finally {
