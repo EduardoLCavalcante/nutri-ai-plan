@@ -41,9 +41,8 @@ export interface MealPlan {
 
 interface NutritionContextType {
   userData: UserData | null;
-  setUserData: (data: UserData) => void;
   mealPlan: MealPlan | null;
-  setMealPlan: (plan: MealPlan) => void;
+  setPlanResult: (data: UserData, plan: MealPlan) => void;
   isLoading: boolean;
   setIsLoading: (loading: boolean) => void;
   clearData: () => void;
@@ -52,22 +51,23 @@ interface NutritionContextType {
 const NutritionContext = createContext<NutritionContextType | undefined>(undefined);
 
 export const NutritionProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [userData, setUserData] = useState<UserData | null>(null);
-  const [mealPlan, setMealPlan] = useState<MealPlan | null>(null);
+  const [planResult, setPlanResultState] = useState<{ userData: UserData; mealPlan: MealPlan } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
+  const setPlanResult = (userData: UserData, mealPlan: MealPlan) => {
+    setPlanResultState({ userData, mealPlan });
+  };
+
   const clearData = () => {
-    setUserData(null);
-    setMealPlan(null);
+    setPlanResultState(null);
   };
 
   return (
     <NutritionContext.Provider 
       value={{ 
-        userData, 
-        setUserData, 
-        mealPlan, 
-        setMealPlan, 
+        userData: planResult?.userData ?? null,
+        mealPlan: planResult?.mealPlan ?? null,
+        setPlanResult,
         isLoading, 
         setIsLoading,
         clearData 

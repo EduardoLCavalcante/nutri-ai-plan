@@ -8,11 +8,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { gerarPlanoIA, isHFTokenConfigured } from '@/services/huggingFaceApi';
+import { gerarPlanoIA } from '@/services/nutritionApi';
+import { userDataSchema } from '@/lib/nutritionValidation';
 import { 
   User, 
   Ruler, 
-  Scale, 
   Target, 
   Calendar, 
   Utensils,
@@ -23,7 +23,7 @@ import {
 
 const Formulario = () => {
   const navigate = useNavigate();
-  const { setUserData, setMealPlan, setIsLoading, isLoading } = useNutrition();
+  const { setPlanResult, setIsLoading, isLoading } = useNutrition();
   const { toast } = useToast();
 
   const [formData, setFormData] = useState<Partial<UserData>>({
@@ -45,129 +45,14 @@ const Formulario = () => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
-  const calculateTMB = (data: UserData): number => {
-    // Harris-Benedict Formula
-    if (data.sexo === 'masculino') {
-      return 88.362 + (13.397 * data.peso) + (4.799 * data.altura) - (5.677 * data.idade);
-    } else {
-      return 447.593 + (9.247 * data.peso) + (3.098 * data.altura) - (4.330 * data.idade);
-    }
-  };
-
-  const calculateGET = (tmb: number, perfil: string): number => {
-    // Factor de atividade
-    const factor = perfil === 'atleta' ? 1.725 : 1.55;
-    return tmb * factor;
-  };
-
-  const adjustCalories = (get: number, objetivo: string): number => {
-    switch (objetivo) {
-      case 'emagrecimento':
-        return get * 0.8; // 20% déficit
-      case 'hipertrofia':
-        return get * 1.15; // 15% superávit
-      case 'manutencao':
-        return get;
-      case 'saude':
-        return get * 0.95; // 5% déficit leve
-      default:
-        return get;
-    }
-  };
-
-  const generateMockMealPlan = (data: UserData, tmb: number, get: number, adjustedCalories: number) => {
-    const proteinGrams = Math.round(data.peso * (data.objetivo === 'hipertrofia' ? 2 : 1.6));
-    const fatGrams = Math.round((adjustedCalories * 0.25) / 9);
-    const carbGrams = Math.round((adjustedCalories - (proteinGrams * 4) - (fatGrams * 9)) / 4);
-
-    const refeicoesPadrao = [
-      {
-        nome: 'Café da manhã',
-        alimentos: [
-          { nome: 'Ovos mexidos', quantidade: '2 unidades', calorias: 140 },
-          { nome: 'Pão integral', quantidade: '2 fatias', calorias: 140 },
-          { nome: 'Banana', quantidade: '1 unidade média', calorias: 90 },
-          { nome: 'Café sem açúcar', quantidade: '1 xícara', calorias: 5 },
-        ]
-      },
-      {
-        nome: 'Lanche da manhã',
-        alimentos: [
-          { nome: 'Iogurte natural', quantidade: '170g', calorias: 100 },
-          { nome: 'Granola', quantidade: '30g', calorias: 120 },
-        ]
-      },
-      {
-        nome: 'Almoço',
-        alimentos: [
-          { nome: 'Arroz integral', quantidade: '4 colheres de sopa', calorias: 140 },
-          { nome: 'Feijão', quantidade: '2 colheres de sopa', calorias: 80 },
-          { nome: 'Frango grelhado', quantidade: '150g', calorias: 230 },
-          { nome: 'Salada de folhas', quantidade: '1 prato', calorias: 25 },
-          { nome: 'Azeite de oliva', quantidade: '1 colher de sopa', calorias: 90 },
-        ]
-      },
-      {
-        nome: 'Lanche da tarde',
-        alimentos: [
-          { nome: 'Maçã', quantidade: '1 unidade', calorias: 80 },
-          { nome: 'Amendoim', quantidade: '30g', calorias: 170 },
-        ]
-      },
-      {
-        nome: 'Jantar',
-        alimentos: [
-          { nome: 'Peixe grelhado', quantidade: '150g', calorias: 180 },
-          { nome: 'Batata doce', quantidade: '150g', calorias: 130 },
-          { nome: 'Legumes cozidos', quantidade: '1 xícara', calorias: 60 },
-        ]
-      },
-      {
-        nome: 'Ceia',
-        alimentos: [
-          { nome: 'Queijo cottage', quantidade: '100g', calorias: 100 },
-        ]
-      },
-    ];
-
-    // Ajustar número de refeições
-    const refeicoesAjustadas = refeicoesPadrao.slice(0, data.refeicoes);
-
-    return {
-      calorias_diarias: Math.round(adjustedCalories),
-      macros: {
-        proteinas: `${proteinGrams}g`,
-        carboidratos: `${carbGrams}g`,
-        gorduras: `${fatGrams}g`,
-      },
-      refeicoes: refeicoesAjustadas,
-      aviso: 'Este plano é apenas educativo e não substitui o acompanhamento com um nutricionista profissional.',
-      tmb: Math.round(tmb),
-      get: Math.round(get),
-    };
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    // Validação básica
-    const requiredFields: (keyof UserData)[] = ['nome', 'idade', 'sexo', 'altura', 'peso', 'perfil', 'objetivo', 'tempo'];
-    const missingFields = requiredFields.filter(field => !formData[field]);
-    
-    if (missingFields.length > 0) {
-      toast({
-        title: 'Campos obrigatórios',
-        description: 'Por favor, preencha todos os campos obrigatórios.',
-        variant: 'destructive',
-      });
-      return;
-    }
 
-    // Verificar se o token está configurado
-    if (!isHFTokenConfigured()) {
+    const validated = userDataSchema.safeParse(formData);
+    if (!validated.success) {
       toast({
-        title: 'Configuração necessária',
-        description: 'O token do Hugging Face não está configurado. Configure VITE_HF_TOKEN no arquivo .env',
+        title: 'Revise os dados informados',
+        description: 'Preencha o nome e escolha uma idade entre 18 e 100 anos, altura entre 100 e 250 cm e peso entre 30 e 400 kg.',
         variant: 'destructive',
       });
       return;
@@ -176,21 +61,9 @@ const Formulario = () => {
     setIsLoading(true);
 
     try {
-      const userData = formData as UserData;
-      setUserData(userData);
-
-      // Gerar plano alimentar usando IA real
+      const userData = validated.data;
       const mealPlan = await gerarPlanoIA(userData);
-      
-      // Se a IA não retornou TMB/GET, calcular localmente
-      if (!mealPlan.tmb || !mealPlan.get) {
-        const tmb = calculateTMB(userData);
-        const get = calculateGET(tmb, userData.perfil);
-        mealPlan.tmb = Math.round(tmb);
-        mealPlan.get = Math.round(get);
-      }
-      
-      setMealPlan(mealPlan);
+      setPlanResult(userData, mealPlan);
 
       toast({
         title: 'Plano gerado com sucesso!',
@@ -230,6 +103,8 @@ const Formulario = () => {
           <p className="text-sm text-muted-foreground">
             <strong className="text-foreground">Lembre-se:</strong> Este é um aplicativo educacional. 
             O plano gerado não substitui a orientação de um nutricionista profissional.
+            Suas medidas e restrições alimentares são enviadas ao provedor de IA para criar o plano;
+            seu nome não é enviado ao provedor de IA.
           </p>
         </div>
 
@@ -250,6 +125,7 @@ const Formulario = () => {
                   placeholder="Seu nome completo"
                   value={formData.nome}
                   onChange={(e) => handleInputChange('nome', e.target.value)}
+                  maxLength={100}
                 />
               </div>
 
@@ -259,6 +135,8 @@ const Formulario = () => {
                   <Input
                     id="idade"
                     type="number"
+                    min={18}
+                    max={100}
                     placeholder="Ex: 25"
                     value={formData.idade || ''}
                     onChange={(e) => handleInputChange('idade', parseInt(e.target.value) || 0)}
@@ -299,6 +177,8 @@ const Formulario = () => {
                 <Input
                   id="altura"
                   type="number"
+                  min={100}
+                  max={250}
                   placeholder="Ex: 170"
                   value={formData.altura || ''}
                   onChange={(e) => handleInputChange('altura', parseInt(e.target.value) || 0)}
@@ -310,6 +190,8 @@ const Formulario = () => {
                 <Input
                   id="peso"
                   type="number"
+                  min={30}
+                  max={400}
                   step="0.1"
                   placeholder="Ex: 70.5"
                   value={formData.peso || ''}
@@ -425,6 +307,7 @@ const Formulario = () => {
                   placeholder="Ex: Intolerância à lactose, alergia a glúten..."
                   value={formData.restricoes}
                   onChange={(e) => handleInputChange('restricoes', e.target.value)}
+                  maxLength={500}
                 />
               </div>
 
@@ -435,6 +318,7 @@ const Formulario = () => {
                   placeholder="Ex: Vegetariano, vegano, low carb..."
                   value={formData.preferencias}
                   onChange={(e) => handleInputChange('preferencias', e.target.value)}
+                  maxLength={500}
                 />
               </div>
 
@@ -445,6 +329,7 @@ const Formulario = () => {
                   placeholder="Ex: Brócolis, fígado, beterraba..."
                   value={formData.alimentosNaoGosta}
                   onChange={(e) => handleInputChange('alimentosNaoGosta', e.target.value)}
+                  maxLength={500}
                 />
               </div>
             </div>
