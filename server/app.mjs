@@ -2,13 +2,11 @@ import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  ApiError,
-  answerChat,
-  chatRequestSchema,
-  generateMealPlan,
-  mealPlanRequestSchema,
-} from './nutrition.mjs';
+import { answerChat } from './chat-service.mjs';
+import { ApiError, errorResponse } from './errors.mjs';
+import { GROQ_MODEL } from './groq-client.mjs';
+import { generateMealPlan } from './meal-plan-service.mjs';
+import { chatRequestSchema, mealPlanRequestSchema } from './schemas.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const defaultStaticDir = path.join(root, 'dist');
@@ -42,13 +40,13 @@ function sendJSON(res, status, data) {
 function readJSON(req) {
   return new Promise((resolve, reject) => {
     if (!/^application\/json(?:\s*;|\s*$)/i.test(req.headers['content-type'] || '')) {
-      reject(new ApiError(415, 'Envie JSON com Content-Type application/json.'));
+      reject(new ApiError(415, 'INVALID_REQUEST', 'Envie JSON com Content-Type application/json.'));
       req.resume();
       return;
     }
     const claimedLength = Number(req.headers['content-length']);
     if (Number.isFinite(claimedLength) && claimedLength > MAX_BODY_BYTES) {
-      reject(new ApiError(413, 'Requisição grande demais.'));
+      reject(new ApiError(413, 'INVALID_REQUEST', 'Requisição grande demais.'));
       req.resume();
       return;
     }
@@ -60,7 +58,7 @@ function readJSON(req) {
       size += chunk.length;
       if (size > MAX_BODY_BYTES) {
         complete = true;
-        reject(new ApiError(413, 'Requisição grande demais.'));
+        reject(new ApiError(413, 'INVALID_REQUEST', 'Requisição grande demais.'));
         req.resume();
       } else {
         chunks.push(chunk);
@@ -72,18 +70,18 @@ function readJSON(req) {
       try {
         resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
       } catch {
-        reject(new ApiError(400, 'JSON inválido.'));
+        reject(new ApiError(400, 'INVALID_REQUEST', 'JSON inválido.'));
       }
     });
     req.on('error', () => {
-      if (!complete) reject(new ApiError(400, 'Não foi possível ler a requisição.'));
+      if (!complete) reject(new ApiError(400, 'INVALID_REQUEST', 'Não foi possível ler a requisição.'));
     });
   });
 }
 
 function validateSameOrigin(req) {
   if (req.headers['sec-fetch-site'] === 'cross-site') {
-    throw new ApiError(403, 'Origem da requisição não permitida.');
+    throw new ApiError(403, 'INVALID_ORIGIN', 'Origem da requisição não permitida.');
   }
   const origin = req.headers.origin;
   if (!origin) return;
@@ -91,10 +89,10 @@ function validateSameOrigin(req) {
   try {
     originHost = new URL(origin).host;
   } catch {
-    throw new ApiError(403, 'Origem da requisição não permitida.');
+    throw new ApiError(403, 'INVALID_ORIGIN', 'Origem da requisição não permitida.');
   }
   if (originHost !== req.headers.host) {
-    throw new ApiError(403, 'Origem da requisição não permitida.');
+    throw new ApiError(403, 'INVALID_ORIGIN', 'Origem da requisição não permitida.');
   }
 }
 
@@ -152,16 +150,22 @@ export function createAppServer({ token = process.env.GROQ_API_KEY, fetchImpl = 
       try {
         pathname = new URL(req.url || '/', 'http://localhost').pathname;
       } catch {
-        throw new ApiError(400, 'Caminho inválido.');
+        throw new ApiError(400, 'INVALID_REQUEST', 'Caminho inválido.');
       }
 
       if (!pathname.startsWith('/api/')) {
         await serveStatic(req, res, pathname, resolvedStaticDir);
         return;
       }
-      if (req.method !== 'POST' || !['/api/meal-plan', '/api/chat'].includes(pathname)) {
-        throw new ApiError(404, 'Endpoint não encontrado.');
+      if (pathname === '/api/health') {
+        if (req.method !== 'GET') throw new ApiError(405, 'METHOD_NOT_ALLOWED', 'Método não permitido.');
+        sendJSON(res, 200, { status: 'ok', aiConfigured: Boolean(token?.trim()) });
+        return;
       }
+      if (!['/api/meal-plan', '/api/chat'].includes(pathname)) {
+        throw new ApiError(404, 'NOT_FOUND', 'Endpoint não encontrado.');
+      }
+      if (req.method !== 'POST') throw new ApiError(405, 'METHOD_NOT_ALLOWED', 'Método não permitido.');
       validateSameOrigin(req);
 
       const now = Date.now();
@@ -178,26 +182,30 @@ export function createAppServer({ token = process.env.GROQ_API_KEY, fetchImpl = 
         while (requests.size > 1000) requests.delete(requests.keys().next().value);
       }
       if (current.count > MAX_REQUESTS) {
-        throw new ApiError(429, 'Muitas requisições. Aguarde um minuto e tente novamente.');
+        throw new ApiError(429, 'RATE_LIMITED', 'Muitas requisições. Aguarde um minuto e tente novamente.');
       }
 
       const body = await readJSON(req);
       const schema = pathname === '/api/meal-plan' ? mealPlanRequestSchema : chatRequestSchema;
       const parsed = schema.safeParse(body);
-      if (!parsed.success) throw new ApiError(400, 'Dados inválidos. Revise os campos e tente novamente.');
+      if (!parsed.success) throw new ApiError(400, 'INVALID_REQUEST', 'Dados inválidos. Revise os campos e tente novamente.');
 
-      const options = { token, fetchImpl, signal: AbortSignal.timeout(30_000) };
+      const options = { token, fetchImpl };
       if (pathname === '/api/meal-plan') {
         sendJSON(res, 200, await generateMealPlan(parsed.data.profile, options));
       } else {
-        sendJSON(res, 200, { answer: await answerChat(parsed.data, options) });
+        sendJSON(res, 200, {
+          success: true,
+          answer: await answerChat(parsed.data, options),
+          provider: 'groq',
+          model: GROQ_MODEL,
+        });
       }
     } catch (error) {
       if (res.headersSent) return;
       // Não registre prompt, resposta do provedor, token ou dados pessoais em logs.
-      const status = error instanceof ApiError ? error.status : 500;
-      const message = error instanceof ApiError ? error.message : 'Erro interno. Tente novamente.';
-      sendJSON(res, status, { error: message });
+      const { status, body } = errorResponse(error);
+      sendJSON(res, status, body);
     }
   });
   server.requestTimeout = 35_000;

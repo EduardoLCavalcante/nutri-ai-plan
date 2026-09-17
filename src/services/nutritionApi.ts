@@ -14,6 +14,17 @@ export interface ChatHistoryMessage {
   content: string;
 }
 
+export class ApiRequestError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number | null,
+    public readonly code?: string,
+  ) {
+    super(message);
+    this.name = 'ApiRequestError';
+  }
+}
+
 const mealPlanSchema = z.object({
   calorias_diarias: z.number().finite().positive(),
   macros: z.object({
@@ -40,7 +51,9 @@ const parseResponse = async (response: Response): Promise<unknown> => {
   if (!response.ok) {
     const message = data && typeof data === 'object' && 'error' in data &&
       typeof data.error === 'string' ? data.error : 'Não foi possível se comunicar com a IA.';
-    throw new Error(message);
+    const code = data && typeof data === 'object' && 'code' in data &&
+      typeof data.code === 'string' ? data.code : undefined;
+    throw new ApiRequestError(message, response.status, code);
   }
 
   return data;
@@ -57,10 +70,10 @@ const postJSON = async (path: string, body: unknown): Promise<unknown> => {
     return await parseResponse(response);
   } catch (error) {
     if (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')) {
-      throw new Error('A IA demorou para responder. Tente novamente.');
+      throw new ApiRequestError('A IA demorou para responder. Tente novamente.', 504);
     }
     if (error instanceof TypeError) {
-      throw new Error('Não foi possível conectar ao servidor. Tente novamente.');
+      throw new ApiRequestError('Não foi possível conectar ao servidor. Tente novamente.', null);
     }
     throw error;
   }
@@ -84,12 +97,23 @@ export const perguntarChatIA = async (
   historico: ChatHistoryMessage[],
   mealPlan?: MealPlan,
 ): Promise<string> => {
-  const data = await postJSON('/api/chat', {
+  const payload = {
     question: pergunta,
     context: contextoUsuario,
     history: historico.slice(-10),
     mealPlan,
-  });
+  };
+  let data: unknown;
+  try {
+    data = await postJSON('/api/chat', payload);
+  } catch (error) {
+    if (!(error instanceof ApiRequestError) ||
+        ![502, 503, 504].includes(error.status ?? 0) ||
+        error.code === 'GROQ_AUTH_ERROR' ||
+        error.code === 'AI_NOT_CONFIGURED') throw error;
+    // One automatic retry lives here; the page only offers manual retry.
+    data = await postJSON('/api/chat', payload);
+  }
   const parsed = z.object({ answer: z.string().trim().min(1) }).safeParse(data);
   if (!parsed.success) {
     throw new Error('A IA retornou uma resposta inválida. Tente novamente.');
