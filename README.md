@@ -1,73 +1,38 @@
-# Welcome to your Lovable project
+# Nutri AI Plan
 
-## Project info
+Aplicativo educacional para criar um plano alimentar diário e tirar dúvidas de nutrição. As chamadas à IA usam o modelo `openai/gpt-oss-20b` na Groq por meio do servidor Node; a chave de acesso nunca deve ser colocada em variáveis `VITE_*` nem no navegador.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+## Sua ação: configurar a chave Groq
 
-## How can I edit this code?
-
-There are several ways of editing your application.
-
-**Use Lovable**
-
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
-
-Changes made via Lovable will be committed automatically to this repo.
-
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
+1. Revogue a chave antiga do Hugging Face compartilhada no chat, caso ainda esteja ativa.
+2. Crie uma chave em [Groq API Keys](https://console.groq.com/keys) e confira o acesso ao modelo [`openai/gpt-oss-20b`](https://console.groq.com/docs/model/openai/gpt-oss-20b).
+3. Copie `.env.example` para `.env.local` e preencha `GROQ_API_KEY`. `.env.local` está ignorado pelo Git. Em produção, configure `GROQ_API_KEY` como segredo do ambiente Node.
 
 ```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
+npm ci
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+O projeto requer Node.js 22.9 ou superior. Em desenvolvimento, o site abre em `http://127.0.0.1:8080`; o Vite encaminha `/api` para o servidor Node em `127.0.0.1:3001`. Reinicie `npm run dev` após mudar `.env.local`. Sem chave, o site abre, mas as ações de IA exibem um erro de configuração.
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+## Produção
 
-**Use GitHub Codespaces**
+```sh
+npm ci
+npm run build
+npm start
+```
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+`npm start` serve a pasta `dist` e os endpoints `/api` no mesmo host. A porta padrão é 3001; configure `PORT` e `HOST` conforme seu servidor. O `HOST` padrão em produção é `0.0.0.0`; em desenvolvimento, a API escuta somente no loopback. Coloque HTTPS e limites adicionais de tráfego no proxy/serviço de hospedagem quando publicar.
 
-## What technologies are used for this project?
+Uma hospedagem que publica apenas arquivos estáticos, inclusive o fluxo de publicação estática do Lovable, **não executa** `server/index.mjs`; nela, `/api/meal-plan` e `/api/chat` não funcionarão. Use uma hospedagem Node para o site e a API juntos ou adapte os endpoints a funções de servidor da plataforma, mantendo `GROQ_API_KEY` exclusivamente no servidor.
 
-This project is built with:
+## Verificação
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+```sh
+npm run test:server
+npm run lint
+npm run build
+```
 
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+Os testes do servidor simulam a Groq e não precisam de chave real. Para gerar respostas, idade, medidas, objetivo, restrições, plano e mensagens de chat são enviados ao provedor de IA; o nome informado no formulário fica apenas no navegador. Planos e respostas de chat são educacionais e não substituem acompanhamento de nutricionista.

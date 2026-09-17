@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useNutrition } from '@/contexts/NutritionContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { perguntarChatIA, isHFTokenConfigured } from '@/services/huggingFaceApi';
+import { perguntarChatIA } from '@/services/nutritionApi';
 import { useToast } from '@/hooks/use-toast';
 import { 
   Send, 
@@ -19,10 +19,11 @@ interface Message {
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
+  inHistory?: boolean;
 }
 
 const Chat = () => {
-  const { userData } = useNutrition();
+  const { userData, mealPlan } = useNutrition();
   const { toast } = useToast();
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -34,10 +35,11 @@ const Chat = () => {
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const container = messagesContainerRef.current;
+    if (container) container.scrollTop = container.scrollHeight;
   };
 
   useEffect(() => {
@@ -48,16 +50,6 @@ const Chat = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
-
-    // Verificar se o token está configurado
-    if (!isHFTokenConfigured()) {
-      toast({
-        title: 'Configuração necessária',
-        description: 'O token do Hugging Face não está configurado. Configure VITE_HF_TOKEN no arquivo .env',
-        variant: 'destructive',
-      });
-      return;
-    }
 
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -77,16 +69,24 @@ const Chat = () => {
         restricoes: userData?.restricoes || 'Nenhuma',
       };
 
-      const response = await perguntarChatIA(userMessage.content, contexto);
+      const history = messages
+        .filter(message => message.inHistory)
+        .slice(-10)
+        .map(({ role, content }) => ({ role, content }));
+      const response = await perguntarChatIA(userMessage.content, contexto, history, mealPlan ?? undefined);
       
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
         content: response,
         timestamp: new Date(),
+        inHistory: true,
       };
 
-      setMessages(prev => [...prev, assistantMessage]);
+      setMessages(prev => [
+        ...prev.map(message => message.id === userMessage.id ? { ...message, inHistory: true } : message),
+        assistantMessage,
+      ]);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Ocorreu um erro ao processar sua mensagem.';
       
@@ -102,6 +102,7 @@ const Chat = () => {
         role: 'assistant',
         content: `Desculpe, não consegui processar sua pergunta. ${errorMessage}\n\nPor favor, tente novamente em alguns instantes.`,
         timestamp: new Date(),
+        inHistory: false,
       };
 
       setMessages(prev => [...prev, errorAssistantMessage]);
@@ -139,11 +140,12 @@ const Chat = () => {
           <AlertTriangle className="h-4 w-4 text-accent shrink-0" />
           <p className="text-muted-foreground">
             Este chat é apenas educativo e não substitui um nutricionista profissional.
+            Suas perguntas, restrições e o plano atual são enviados ao provedor de IA para responder.
           </p>
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto space-y-4 mb-4 pr-2">
+        <div ref={messagesContainerRef} className="flex-1 overflow-y-auto space-y-4 mb-4 pr-2">
           {messages.map((message) => (
             <div
               key={message.id}
@@ -196,7 +198,6 @@ const Chat = () => {
             </div>
           )}
           
-          <div ref={messagesEndRef} />
         </div>
 
         {/* Suggested Questions */}
@@ -223,6 +224,7 @@ const Chat = () => {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="Digite sua dúvida sobre nutrição..."
+            maxLength={1000}
             disabled={isLoading}
             className="flex-1"
           />
