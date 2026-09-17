@@ -1,12 +1,15 @@
 import { Link, useLocation } from 'react-router-dom';
-import { Salad, Menu, X } from 'lucide-react';
+import { Salad, Menu, X, Moon, Sun } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useState } from 'react';
+import { useTheme } from 'next-themes';
 import { cn } from '@/lib/utils';
 
 const Header = () => {
   const [isOpen, setIsOpen] = useState(false);
+  const { theme, setTheme } = useTheme();
   const location = useLocation();
+  const isDark = theme === 'dark';
 
   const navLinks = [
     { href: '/', label: 'Início' },
@@ -29,33 +32,50 @@ const Header = () => {
             </span>
           </Link>
 
-          {/* Desktop Navigation */}
-          <nav className="hidden md:flex items-center gap-1">
-            {navLinks.map((link) => (
-              <Link key={link.href} to={link.href}>
-                <Button
-                  variant={isActive(link.href) ? "default" : "ghost"}
-                  size="sm"
-                  className={cn(
-                    "font-medium",
-                    isActive(link.href) && "shadow-soft"
-                  )}
-                >
-                  {link.label}
-                </Button>
-              </Link>
-            ))}
-          </nav>
+          <div className="flex items-center gap-1">
+            {/* Desktop Navigation */}
+            <nav className="hidden md:flex items-center gap-1">
+              {navLinks.map((link) => (
+                <Link key={link.href} to={link.href}>
+                  <Button
+                    variant={isActive(link.href) ? "default" : "ghost"}
+                    size="sm"
+                    className={cn(
+                      "font-medium",
+                      isActive(link.href) && "shadow-soft"
+                    )}
+                  >
+                    {link.label}
+                  </Button>
+                </Link>
+              ))}
+            </nav>
 
-          {/* Mobile Menu Button */}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="md:hidden"
-            onClick={() => setIsOpen(!isOpen)}
-          >
-            {isOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-          </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={() => setTheme(isDark ? 'light' : 'dark')}
+              aria-label="Modo noturno"
+              aria-pressed={isDark}
+              title={isDark ? 'Ativar modo claro' : 'Ativar modo noturno'}
+            >
+              {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+            </Button>
+
+            {/* Mobile Menu Button */}
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="md:hidden"
+              onClick={() => setIsOpen(!isOpen)}
+              aria-label={isOpen ? 'Fechar menu' : 'Abrir menu'}
+              aria-expanded={isOpen}
+            >
+              {isOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            </Button>
+          </div>
         </div>
 
         {/* Mobile Navigation */}
