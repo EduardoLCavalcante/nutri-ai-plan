@@ -10,7 +10,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "start": "node --env-file-if-exists=.env.local server/index.mjs",
-    "test:server": "node --test server/*.test.mjs"
+    "test:server": "node --test server/*.test.mjs",
+    "test:groq": "node --env-file-if-exists=.env.local scripts/test-groq.mjs"
   },
   "engines": {
     "node": ">=22.9.0"

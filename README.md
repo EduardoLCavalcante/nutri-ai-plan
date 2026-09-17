@@ -27,7 +27,7 @@ npm start
 
 ### Vercel
 
-O projeto inclui funções serverless em `api/meal-plan.mjs` e `api/chat.mjs`, além de [vercel.json](./vercel.json), para que o frontend Vite e a API sejam publicados no mesmo domínio. Ao importar o repositório na Vercel:
+O projeto inclui funções serverless em `api/meal-plan.mjs`, `api/chat.mjs` e `api/health.mjs`, além de [vercel.json](./vercel.json), para que o frontend Vite e a API sejam publicados no mesmo domínio. Ao importar o repositório na Vercel:
 
 1. Escolha o framework **Vite** e mantenha `npm run build` como comando de build.
 2. Em **Settings → Environment Variables**, adicione `GROQ_API_KEY` como segredo para **Production** e, se for testar o PR, para **Preview**. Não use `VITE_GROQ_API_KEY`.
@@ -45,4 +45,4 @@ npm run lint
 npm run build
 ```
 
-Os testes do servidor simulam a Groq e não precisam de chave real. Para gerar respostas, idade, medidas, objetivo, restrições, plano e mensagens de chat são enviados ao provedor de IA; o nome informado no formulário fica apenas no navegador. Planos e respostas de chat são educacionais e não substituem acompanhamento de nutricionista.
+Os testes do servidor simulam a Groq e não precisam de chave real. `GET /api/health` verifica se a API está disponível e se a chave foi configurada, sem chamar a Groq. Para verificar opcionalmente a conexão real com o provedor, configure `GROQ_API_KEY` no servidor e execute `npm run test:groq`; esse teste não roda no build nem em CI por padrão. Para gerar respostas, idade, medidas, objetivo, restrições, plano e mensagens de chat são enviados ao provedor de IA; o nome informado no formulário fica apenas no navegador. O histórico do chat fica em `sessionStorage` durante a sessão do navegador. Planos e respostas de chat são educacionais e não substituem acompanhamento de nutricionista.

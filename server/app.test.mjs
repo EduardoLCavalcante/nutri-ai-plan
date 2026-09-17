@@ -29,6 +29,11 @@ const providerPlan = {
   ...plan,
   refeicoes: Object.fromEntries(plan.refeicoes.map((meal, index) => [`refeicao_${index + 1}`, meal])),
 };
+const chatPayload = {
+  question: 'E no jantar?',
+  context: { objetivo: 'manutencao', perfil: 'nao_atleta', restricoes: '' },
+  history: [],
+};
 
 async function withServer(t, options = {}) {
   const server = createAppServer(options);
@@ -195,14 +200,82 @@ test('chat envia contexto e histórico e devolve resposta segura', async (t) => 
     mealPlan: { ...plan, aviso: 'Educativo', tmb: 1600, get: 2500 },
   });
   assert.equal(response.status, 200);
-  assert.match((await response.json()).answer, /procure um nutricionista\.$/);
+  const body = await response.json();
+  assert.deepEqual(Object.keys(body).sort(), ['answer', 'model', 'provider', 'success']);
+  assert.equal(body.success, true);
+  assert.equal(body.provider, 'groq');
+  assert.equal(body.model, 'openai/gpt-oss-20b');
+  assert.match(body.answer, /procure um nutricionista\.$/);
   assert.equal(sent.messages.at(-1).content, 'E no jantar?');
   assert.equal(sent.messages.at(-2).content, 'Sim.');
   assert.match(sent.messages[1].content, /Refeição 1/);
   assert.equal(sent.model, 'openai/gpt-oss-20b');
-  assert.equal(sent.max_completion_tokens, 700);
+  assert.equal(sent.max_completion_tokens, 1200);
   assert.equal(sent.response_format, undefined);
 });
+
+test('GET /api/health informa disponibilidade e configuração sem chamar a Groq', async (t) => {
+  let calls = 0;
+  const fetchImpl = async () => { calls++; throw new Error('Groq não deve ser chamada'); };
+  for (const [token, aiConfigured] of [['groq_health_secret', true], ['', false]]) {
+    const url = await withServer(t, { token, fetchImpl });
+    const response = await fetch(`${url}/api/health`);
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { status: 'ok', aiConfigured });
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+  }
+  assert.equal(calls, 0);
+});
+
+test('POST /api/chat rejeita payload inválido com JSON padronizado antes da Groq', async (t) => {
+  let calls = 0;
+  const url = await withServer(t, {
+    token: 'groq_api_secret',
+    fetchImpl: async () => { calls++; throw new Error('Groq não deve ser chamada'); },
+  });
+  const response = await post(url, '/api/chat', { ...chatPayload, question: '' });
+  assert.equal(response.status, 400);
+  const body = await response.json();
+  assert.equal(body.success, false);
+  assert.equal(body.code, 'INVALID_REQUEST');
+  assert.equal(typeof body.error, 'string');
+  assert.equal(calls, 0);
+});
+
+test('POST /api/chat informa chave ausente sem chamar a Groq', async (t) => {
+  let calls = 0;
+  const url = await withServer(t, {
+    token: '',
+    fetchImpl: async () => { calls++; throw new Error('Groq não deve ser chamada'); },
+  });
+  const response = await post(url, '/api/chat', chatPayload);
+  assert.equal(response.status, 503);
+  const body = await response.json();
+  assert.equal(body.success, false);
+  assert.equal(body.code, 'AI_NOT_CONFIGURED');
+  assert.equal(calls, 0);
+});
+
+for (const scenario of [
+  { status: 429, code: 'GROQ_RATE_LIMIT', mock: () => new Response('provider private rate', { status: 429 }) },
+  { status: 502, code: 'GROQ_AUTH_ERROR', mock: () => new Response('provider private auth', { status: 401 }) },
+  { status: 503, code: 'GROQ_UNAVAILABLE', mock: () => new Response('provider private outage', { status: 503 }) },
+  { status: 504, code: 'GROQ_TIMEOUT', mock: () => { throw Object.assign(new Error('provider private timeout'), { name: 'TimeoutError' }); } },
+]) {
+  test(`POST /api/chat devolve ${scenario.status} e código ${scenario.code} sem dados internos`, async (t) => {
+    const url = await withServer(t, { token: 'groq_api_secret', fetchImpl: scenario.mock });
+    const response = await post(url, '/api/chat', chatPayload);
+    assert.equal(response.status, scenario.status);
+    const body = await response.json();
+    assert.equal(body.success, false);
+    assert.equal(body.code, scenario.code);
+    assert.equal(typeof body.error, 'string');
+    assert.equal(body.answer, undefined);
+    assert.equal(JSON.stringify(body).includes('groq_api_secret'), false);
+    assert.equal(JSON.stringify(body).includes('provider private'), false);
+    assert.equal(JSON.stringify(body).includes(chatPayload.question), false);
+  });
+}
 
 test('bloqueia origem cruzada e requisição excessiva', async (t) => {
   let calls = 0;
@@ -228,13 +301,15 @@ test('chave ausente e token recusado produzem erro claro sem expor segredo', asy
   const url = await withServer(t, { token: '', fetchImpl: async () => { throw new Error('não chamar'); } });
   const missing = await post(url, '/api/meal-plan', { profile });
   assert.equal(missing.status, 503);
-  assert.match((await missing.json()).error, /GROQ_API_KEY/);
+  const missingBody = await missing.json();
+  assert.equal(missingBody.code, 'AI_NOT_CONFIGURED');
+  assert.match(missingBody.error, /não está configurada/);
 
   const url2 = await withServer(t, { token: 'groq_private_test', fetchImpl: async () => new Response('secret upstream', { status: 401 }) });
   const refused = await post(url2, '/api/meal-plan', { profile });
   assert.equal(refused.status, 502);
   const text = await refused.text();
-  assert.match(text, /GROQ_API_KEY/);
+  assert.equal(JSON.parse(text).code, 'GROQ_AUTH_ERROR');
   assert.equal(text.includes('groq_private_test'), false);
   assert.equal(text.includes('secret upstream'), false);
 });

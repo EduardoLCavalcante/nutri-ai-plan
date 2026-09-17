@@ -1,10 +1,8 @@
-import {
-  ApiError,
-  answerChat,
-  chatRequestSchema,
-  generateMealPlan,
-  mealPlanRequestSchema,
-} from './nutrition.mjs';
+import { answerChat } from './chat-service.mjs';
+import { ApiError, errorResponse } from './errors.mjs';
+import { GROQ_MODEL } from './groq-client.mjs';
+import { generateMealPlan } from './meal-plan-service.mjs';
+import { chatRequestSchema, mealPlanRequestSchema } from './schemas.mjs';
 
 const MAX_BODY_BYTES = 64 * 1024;
 const WINDOW_MS = 60_000;
@@ -27,7 +25,7 @@ function requestHost(headers) {
 
 function validateSameOrigin(req) {
   if (req.headers['sec-fetch-site'] === 'cross-site') {
-    throw new ApiError(403, 'Origem da requisição não permitida.');
+    throw new ApiError(403, 'INVALID_ORIGIN', 'Origem da requisição não permitida.');
   }
   const origin = req.headers.origin;
   if (!origin) return;
@@ -35,26 +33,26 @@ function validateSameOrigin(req) {
   try {
     originHost = new URL(origin).host;
   } catch {
-    throw new ApiError(403, 'Origem da requisição não permitida.');
+    throw new ApiError(403, 'INVALID_ORIGIN', 'Origem da requisição não permitida.');
   }
   if (originHost !== requestHost(req.headers)) {
-    throw new ApiError(403, 'Origem da requisição não permitida.');
+    throw new ApiError(403, 'INVALID_ORIGIN', 'Origem da requisição não permitida.');
   }
 }
 
 function readBody(req) {
   if (!/^application\/json(?:\s*;|\s*$)/i.test(req.headers['content-type'] || '')) {
-    throw new ApiError(415, 'Envie JSON com Content-Type application/json.');
+    throw new ApiError(415, 'INVALID_REQUEST', 'Envie JSON com Content-Type application/json.');
   }
   const claimedLength = Number(req.headers['content-length']);
   if (Number.isFinite(claimedLength) && claimedLength > MAX_BODY_BYTES) {
-    throw new ApiError(413, 'Requisição grande demais.');
+    throw new ApiError(413, 'INVALID_REQUEST', 'Requisição grande demais.');
   }
   if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
-    throw new ApiError(400, 'JSON inválido.');
+    throw new ApiError(400, 'INVALID_REQUEST', 'JSON inválido.');
   }
   if (Buffer.byteLength(JSON.stringify(req.body), 'utf8') > MAX_BODY_BYTES) {
-    throw new ApiError(413, 'Requisição grande demais.');
+    throw new ApiError(413, 'INVALID_REQUEST', 'Requisição grande demais.');
   }
   return req.body;
 }
@@ -77,7 +75,7 @@ function limitRequests(req) {
     while (requests.size > 1000) requests.delete(requests.keys().next().value);
   }
   if (current.count > MAX_REQUESTS) {
-    throw new ApiError(429, 'Muitas requisições. Aguarde um minuto e tente novamente.');
+    throw new ApiError(429, 'RATE_LIMITED', 'Muitas requisições. Aguarde um minuto e tente novamente.');
   }
 }
 
@@ -85,27 +83,39 @@ export function createVercelHandler(kind, {
   token = process.env.GROQ_API_KEY,
   fetchImpl = globalThis.fetch,
 } = {}) {
+  if (!['meal-plan', 'chat', 'health'].includes(kind)) {
+    throw new TypeError('Tipo de endpoint inválido.');
+  }
   const schema = kind === 'meal-plan' ? mealPlanRequestSchema : chatRequestSchema;
 
   return async function handler(req, res) {
     try {
-      if (req.method !== 'POST') throw new ApiError(405, 'Método não permitido.');
+      if (kind === 'health') {
+        if (req.method !== 'GET') throw new ApiError(405, 'METHOD_NOT_ALLOWED', 'Método não permitido.');
+        sendJSON(res, 200, { status: 'ok', aiConfigured: Boolean(token?.trim()) });
+        return;
+      }
+      if (req.method !== 'POST') throw new ApiError(405, 'METHOD_NOT_ALLOWED', 'Método não permitido.');
       validateSameOrigin(req);
       limitRequests(req);
 
       const parsed = schema.safeParse(readBody(req));
-      if (!parsed.success) throw new ApiError(400, 'Dados inválidos. Revise os campos e tente novamente.');
+      if (!parsed.success) throw new ApiError(400, 'INVALID_REQUEST', 'Dados inválidos. Revise os campos e tente novamente.');
 
-      const options = { token, fetchImpl, signal: AbortSignal.timeout(30_000) };
+      const options = { token, fetchImpl };
       const data = kind === 'meal-plan'
         ? await generateMealPlan(parsed.data.profile, options)
-        : { answer: await answerChat(parsed.data, options) };
+        : {
+          success: true,
+          answer: await answerChat(parsed.data, options),
+          provider: 'groq',
+          model: GROQ_MODEL,
+        };
       sendJSON(res, 200, data);
     } catch (error) {
       // Não registre prompt, resposta do provedor, token ou dados pessoais em logs.
-      const status = error instanceof ApiError ? error.status : 500;
-      const message = error instanceof ApiError ? error.message : 'Erro interno. Tente novamente.';
-      sendJSON(res, status, { error: message });
+      const { status, body } = errorResponse(error);
+      sendJSON(res, status, body);
     }
   };
 }
