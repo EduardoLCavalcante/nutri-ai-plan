@@ -10,7 +10,7 @@ const Layout = ({ children }: LayoutProps) => {
   return (
     <div className="min-h-screen flex flex-col gradient-hero">
       <Header />
-      <main className="flex-1">
+      <main className="flex-1" tabIndex={-1}>
         {children}
       </main>
       <Footer />

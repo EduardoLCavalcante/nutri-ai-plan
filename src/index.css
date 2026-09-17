@@ -6,6 +6,7 @@
 
 @layer base {
   :root {
+    color-scheme: light;
     --background: 145 30% 98%;
     --foreground: 160 25% 15%;
 
@@ -59,6 +60,7 @@
   }
 
   .dark {
+    color-scheme: dark;
     --background: 160 25% 8%;
     --foreground: 145 20% 95%;
 
@@ -86,6 +88,14 @@
     --border: 160 15% 22%;
     --input: 160 15% 22%;
     --ring: 158 64% 50%;
+
+    --gradient-primary: linear-gradient(135deg, hsl(158, 64%, 50%) 0%, hsl(172, 66%, 50%) 100%);
+    --gradient-hero: linear-gradient(180deg, hsl(160, 25%, 8%) 0%, hsl(160, 25%, 11%) 100%);
+    --gradient-card: linear-gradient(145deg, hsl(160, 20%, 12%) 0%, hsl(160, 20%, 15%) 100%);
+
+    --shadow-soft: 0 4px 20px -4px hsl(0, 0%, 0%, 0.3);
+    --shadow-card: 0 8px 30px -8px hsl(0, 0%, 0%, 0.4);
+    --shadow-glow: 0 0 40px hsl(158, 64%, 50%, 0.18);
   }
 }
 
