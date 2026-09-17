@@ -25,6 +25,16 @@ npm start
 
 `npm start` serve a pasta `dist` e os endpoints `/api` no mesmo host. A porta padrão é 3001; configure `PORT` e `HOST` conforme seu servidor. O `HOST` padrão em produção é `0.0.0.0`; em desenvolvimento, a API escuta somente no loopback. Coloque HTTPS e limites adicionais de tráfego no proxy/serviço de hospedagem quando publicar.
 
+### Vercel
+
+O projeto inclui funções serverless em `api/meal-plan.mjs` e `api/chat.mjs`, além de [vercel.json](./vercel.json), para que o frontend Vite e a API sejam publicados no mesmo domínio. Ao importar o repositório na Vercel:
+
+1. Escolha o framework **Vite** e mantenha `npm run build` como comando de build.
+2. Em **Settings → Environment Variables**, adicione `GROQ_API_KEY` como segredo para **Production** e, se for testar o PR, para **Preview**. Não use `VITE_GROQ_API_KEY`.
+3. Faça o deploy do PR para receber uma URL de preview; após validar plano e chat, faça o merge em `main` para publicar em produção.
+
+Na Vercel, não use `npm start`: a plataforma serve `dist` e executa cada arquivo de `api/` como uma função Node. O rewrite exclui `/api/*` e mantém as rotas do React funcionando em acesso direto.
+
 Uma hospedagem que publica apenas arquivos estáticos, inclusive o fluxo de publicação estática do Lovable, **não executa** `server/index.mjs`; nela, `/api/meal-plan` e `/api/chat` não funcionarão. Use uma hospedagem Node para o site e a API juntos ou adapte os endpoints a funções de servidor da plataforma, mantendo `GROQ_API_KEY` exclusivamente no servidor.
 
 ## Verificação
